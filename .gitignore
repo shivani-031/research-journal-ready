@@ -1,0 +1,22 @@
+# Secrets
+.env
+**/.env
+
+# Node
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Python
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# VS Code / OS
+.vscode/
+**/.vscode/
+.DS_Store
+Thumbs.db
