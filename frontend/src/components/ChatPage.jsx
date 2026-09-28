@@ -1,588 +1,639 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-
+import { useEffect, useRef, useState } from "react";
 import {
   Bot,
   Send,
   User,
   FileText,
   Sparkles,
+  RefreshCw,
+  BookOpen,
+  AlertCircle,
 } from "lucide-react";
 
 import { supabase } from "../lib/supabase";
 
-function ChatPage({
-  user,
-}) {
-  const [
-    messages,
-    setMessages,
-  ] = useState([
+
+// ============================================================
+// BACKEND URL
+// Local:
+//   http://127.0.0.1:8000
+//
+// Production:
+//   VITE_API_BASE_URL from Vercel
+// ============================================================
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  "http://127.0.0.1:8000";
+
+
+// ============================================================
+// CHAT PAGE
+// ============================================================
+
+function ChatPage({ user }) {
+  const [manuscripts, setManuscripts] = useState([]);
+
+  const [selectedManuscriptId, setSelectedManuscriptId] =
+    useState("");
+
+  const [loadingManuscripts, setLoadingManuscripts] =
+    useState(true);
+
+  const [messages, setMessages] = useState([
     {
       role: "assistant",
-
       text:
         "Hi! I'm your ResearchReady AI assistant. Ask me about research writing, methodology, citations, references, journals, or select one of your saved manuscripts for paper-specific help.",
     },
   ]);
 
-  const [
-    input,
-    setInput,
-  ] = useState("");
+  const [input, setInput] = useState("");
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(false);
+  const [sending, setSending] = useState(false);
 
-  const [
-    manuscripts,
-    setManuscripts,
-  ] = useState([]);
+  const [error, setError] = useState("");
 
-  const [
-    selectedId,
-    setSelectedId,
-  ] = useState("");
+  const messagesEndRef = useRef(null);
 
-  const [
-    error,
-    setError,
-  ] = useState("");
 
-  const bottomRef =
-    useRef(null);
-
-  // =========================================================
-  // LOAD USER LIBRARY
-  // =========================================================
+  // ============================================================
+  // LOAD MANUSCRIPTS FROM SUPABASE
+  // ============================================================
 
   useEffect(() => {
-    const loadManuscripts =
-      async () => {
-        if (!user?.id) {
-          return;
-        }
+    const loadManuscripts = async () => {
+      if (!user?.id) {
+        setLoadingManuscripts(false);
+        return;
+      }
 
-        const {
-          data,
-          error:
-            manuscriptError,
-        } =
+      try {
+        const { data, error: loadError } =
           await supabase
             .from("manuscripts")
             .select(
               "id,file_name,analysis_result,created_at"
             )
-            .eq(
-              "user_id",
-              user.id
-            )
-            .order(
-              "created_at",
-              {
-                ascending: false,
-              }
-            )
-            .limit(20);
+            .eq("user_id", user.id)
+            .order("created_at", {
+              ascending: false,
+            });
 
-        if (manuscriptError) {
-          console.error(
-            manuscriptError
-          );
-
-          return;
+        if (loadError) {
+          throw loadError;
         }
 
-        setManuscripts(
-          data || []
+        setManuscripts(data || []);
+      } catch (err) {
+        console.error(
+          "Could not load manuscripts:",
+          err
         );
-      };
+      } finally {
+        setLoadingManuscripts(false);
+      }
+    };
 
     loadManuscripts();
-  }, [user?.id]);
+  }, [user]);
 
-  // =========================================================
+
+  // ============================================================
   // AUTO SCROLL
-  // =========================================================
+  // ============================================================
 
   useEffect(() => {
-    bottomRef.current
-      ?.scrollIntoView({
-        behavior: "smooth",
-      });
-  }, [
-    messages,
-    loading,
-  ]);
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [messages, sending]);
 
-  // =========================================================
+
+  // ============================================================
   // SELECTED MANUSCRIPT
-  // =========================================================
+  // ============================================================
 
   const selectedManuscript =
     manuscripts.find(
-      (manuscript) =>
-        manuscript.id ===
-        selectedId
-    );
+      (item) =>
+        String(item.id) ===
+        String(selectedManuscriptId)
+    ) || null;
 
-  // =========================================================
+
+  // ============================================================
   // SEND MESSAGE
-  // =========================================================
+  // ============================================================
 
-  const sendMessage =
-    async () => {
-      const question =
-        input.trim();
+  const sendMessage = async (customText = null) => {
+    const question = (customText ?? input).trim();
 
-      if (
-        !question ||
-        loading
-      ) {
-        return;
-      }
+    if (!question || sending) {
+      return;
+    }
 
-      const userMessage = {
-        role: "user",
-        text: question,
-      };
+    setError("");
 
-      const nextMessages = [
-        ...messages,
-        userMessage,
-      ];
+    const userMessage = {
+      role: "user",
+      text: question,
+    };
 
-      setMessages(
-        nextMessages
+    const nextMessages = [
+      ...messages,
+      userMessage,
+    ];
+
+    setMessages(nextMessages);
+
+    setInput("");
+
+    setSending(true);
+
+    try {
+      console.log(
+        "CHAT API:",
+        `${API_BASE_URL}/chat`
       );
 
-      setInput("");
-      setLoading(true);
-      setError("");
+      const response = await fetch(
+        `${API_BASE_URL}/chat`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            messages: nextMessages,
+
+            context:
+              selectedManuscript?.analysis_result ||
+              null,
+          }),
+        }
+      );
+
+      let data = null;
 
       try {
-        const response =
-          await fetch(
-            "http://127.0.0.1:8000/chat",
-            {
-              method: "POST",
+        data = await response.json();
+      } catch {
+        data = null;
+      }
 
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body:
-                JSON.stringify({
-                  messages:
-                    nextMessages,
-
-                  context:
-                    selectedManuscript
-                      ?.analysis_result ||
-                    null,
-                }),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            data.detail ||
-              "AI chat failed."
-          );
-        }
-
-        setMessages(
-          (current) => [
-            ...current,
-
-            {
-              role:
-                "assistant",
-
-              text:
-                data.reply,
-            },
-          ]
+      if (!response.ok) {
+        throw new Error(
+          data?.detail ||
+            `AI request failed (${response.status})`
         );
-      } catch (err) {
+      }
+
+      if (!data?.reply) {
+        throw new Error(
+          "AI returned an empty response."
+        );
+      }
+
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text: data.reply,
+        },
+      ]);
+    } catch (err) {
+      console.error(
+        "Chat request error:",
+        err
+      );
+
+      if (err.message === "Failed to fetch") {
+        setError(
+          "Could not connect to the ResearchReady backend."
+        );
+      } else {
         setError(
           err.message ||
-            "Could not connect to AI chat."
+            "AI chat failed."
         );
-      } finally {
-        setLoading(false);
       }
-    };
-
-  // =========================================================
-  // ENTER TO SEND
-  // =========================================================
-
-  const handleKeyDown =
-    (event) => {
-      if (
-        event.key ===
-          "Enter" &&
-        !event.shiftKey
-      ) {
-        event.preventDefault();
-
-        sendMessage();
-      }
-    };
-
-  // =========================================================
-  // QUICK QUESTION
-  // =========================================================
-
-  const handleQuickQuestion = (question) => {
-    setInput(question);
+    } finally {
+      setSending(false);
+    }
   };
 
-  // =========================================================
+
+  // ============================================================
+  // ENTER TO SEND
+  // ============================================================
+
+  const handleKeyDown = (event) => {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+
+      sendMessage();
+    }
+  };
+
+
+  // ============================================================
+  // RESET CHAT
+  // ============================================================
+
+  const resetChat = () => {
+    setMessages([
+      {
+        role: "assistant",
+        text:
+          "Hi! I'm your ResearchReady AI assistant. Ask me about research writing, methodology, citations, references, journals, or select one of your saved manuscripts for paper-specific help.",
+      },
+    ]);
+
+    setInput("");
+    setError("");
+  };
+
+
+  // ============================================================
+  // QUICK PROMPTS
+  // ============================================================
+
+  const quickPrompts = [
+    {
+      title: "Improve Methodology",
+      text:
+        "How can I improve my methodology?",
+    },
+
+    {
+      title: "Improve Abstract",
+      text:
+        "How can I improve the abstract of my research paper?",
+    },
+
+    {
+      title: "Check References",
+      text:
+        "What should I check in my research paper references?",
+    },
+
+    {
+      title: "Journal Selection",
+      text:
+        "How should I choose a suitable journal for my research paper?",
+    },
+  ];
+
+
+  // ============================================================
   // UI
-  // =========================================================
+  // ============================================================
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 px-6 md:px-10 lg:px-14 py-10">
 
-      <div className="max-w-6xl mx-auto px-6 md:px-10 py-10">
+      <div className="max-w-6xl mx-auto">
+
 
         {/* HEADER */}
 
-        <div>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-5">
 
-          <p className="text-blue-600 font-bold text-sm tracking-wide">
-            RESEARCH ASSISTANT
-          </p>
+          <div>
 
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mt-2">
-            AI Research Chat
-          </h1>
+            <p className="text-blue-600 text-sm font-bold tracking-wide">
+              AI RESEARCH ASSISTANT
+            </p>
 
-          <p className="text-slate-500 mt-2">
-            Ask research questions or chat about one of your analyzed manuscripts.
-          </p>
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mt-2">
+              AI Research Chat
+            </h1>
+
+            <p className="text-slate-500 mt-2 max-w-2xl">
+              Ask research questions or use one of your saved manuscripts for paper-specific help.
+            </p>
+
+          </div>
+
+
+          <button
+            type="button"
+            onClick={resetChat}
+            className="inline-flex items-center justify-center gap-2 border border-slate-300 bg-white px-5 py-3 rounded-xl font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <RefreshCw size={18} />
+
+            New Chat
+          </button>
 
         </div>
 
-        {/* MANUSCRIPT SELECTOR */}
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 mt-7">
+        {/* MANUSCRIPT CONTEXT */}
 
-          <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 mt-8">
 
-            <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+          <div className="flex items-start gap-3">
 
-              <FileText
-                size={21}
-              />
+            <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
+
+              <FileText size={19} />
 
             </div>
 
+
             <div className="flex-1">
 
-              <p className="font-semibold text-slate-900">
+              <p className="font-bold text-slate-900">
                 Manuscript Context
               </p>
 
               <p className="text-sm text-slate-500 mt-1">
-                Select a saved paper if your question is related to a specific manuscript.
+                Select a saved manuscript for paper-specific AI assistance.
               </p>
 
-            </div>
 
-            <select
-              value={
-                selectedId
-              }
-              onChange={(event) =>
-                setSelectedId(
-                  event.target.value
-                )
-              }
-              className="border border-slate-300 rounded-xl px-4 py-3 bg-white outline-none focus:border-blue-500 lg:max-w-sm"
-            >
+              <select
+                value={selectedManuscriptId}
+                onChange={(event) =>
+                  setSelectedManuscriptId(
+                    event.target.value
+                  )
+                }
+                disabled={loadingManuscripts}
+                className="w-full border border-slate-300 rounded-xl px-4 py-3 mt-4 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 bg-white"
+              >
 
-              <option value="">
-                General research chat
-              </option>
+                <option value="">
+                  No manuscript selected
+                </option>
 
-              {manuscripts.map(
-                (manuscript) => (
+                {manuscripts.map((item) => (
                   <option
-                    key={
-                      manuscript.id
-                    }
-                    value={
-                      manuscript.id
-                    }
+                    key={item.id}
+                    value={item.id}
                   >
-                    {
-                      manuscript.file_name
-                    }
+                    {item.file_name}
                   </option>
-                )
+                ))}
+
+              </select>
+
+
+              {selectedManuscript && (
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mt-3">
+
+                  <p className="text-sm text-blue-700">
+
+                    Using manuscript:{" "}
+
+                    <span className="font-semibold">
+                      {selectedManuscript.file_name}
+                    </span>
+
+                  </p>
+
+                </div>
               )}
 
-            </select>
+            </div>
 
           </div>
 
-          {selectedManuscript && (
+        </div>
 
-            <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mt-4">
 
-              <p className="text-sm text-blue-700">
-                AI is using{" "}
-                <strong>
-                  {
-                    selectedManuscript.file_name
-                  }
-                </strong>{" "}
-                as manuscript context.
+        {/* QUICK PROMPTS */}
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+
+          {quickPrompts.map((prompt) => (
+            <button
+              key={prompt.title}
+              type="button"
+              disabled={sending}
+              onClick={() =>
+                sendMessage(prompt.text)
+              }
+              className="text-left bg-white border border-slate-200 rounded-xl p-4 hover:border-blue-300 hover:bg-blue-50 transition"
+            >
+
+              <Sparkles
+                size={17}
+                className="text-blue-600"
+              />
+
+              <p className="font-semibold text-sm mt-3">
+                {prompt.title}
               </p>
 
-            </div>
-
-          )}
-
-        </div>
-
-        {/* QUICK QUESTIONS */}
-
-        <div className="flex flex-wrap gap-3 mt-5">
-
-          <QuickButton
-            text="How can I improve my methodology?"
-            onClick={() =>
-              handleQuickQuestion(
-                "How can I improve my methodology?"
-              )
-            }
-          />
-
-          <QuickButton
-            text="Explain my weaknesses"
-            onClick={() =>
-              handleQuickQuestion(
-                "Explain the main weaknesses in my manuscript."
-              )
-            }
-          />
-
-          <QuickButton
-            text="Help with references"
-            onClick={() =>
-              handleQuickQuestion(
-                "Which references need attention and why?"
-              )
-            }
-          />
-
-          <QuickButton
-            text="Explain journal matches"
-            onClick={() =>
-              handleQuickQuestion(
-                "Explain why these journals were recommended."
-              )
-            }
-          />
+            </button>
+          ))}
 
         </div>
 
-        {/* CHAT BOX */}
 
-        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden mt-7">
+        {/* CHAT CONTAINER */}
+
+        <div className="bg-white border border-slate-200 rounded-3xl mt-6 overflow-hidden">
+
 
           {/* CHAT HEADER */}
 
-          <div className="border-b border-slate-200 p-5 flex items-center gap-3">
+          <div className="border-b border-slate-200 px-6 py-4 flex items-center gap-3">
 
-            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
 
-              <Sparkles
-                size={20}
-              />
+              <Bot size={21} />
 
             </div>
 
             <div>
 
-              <p className="font-bold text-slate-900">
+              <p className="font-bold">
                 ResearchReady AI
               </p>
 
-              <p className="text-xs text-green-600 font-semibold">
-                ● AI Assistant Ready
+              <p className="text-xs text-slate-500">
+                Academic research assistant
               </p>
 
             </div>
 
           </div>
 
+
           {/* MESSAGES */}
 
-          <div className="h-[500px] overflow-y-auto p-6 space-y-6">
+          <div className="min-h-[480px] max-h-[65vh] overflow-y-auto px-6 py-7">
 
-            {messages.map(
-              (
-                message,
-                index
-              ) => {
-                const isUser =
-                  message.role ===
-                  "user";
+            <div className="space-y-7">
 
-                return (
-                  <div
-                    key={index}
-                    className={`flex gap-3 ${
-                      isUser
-                        ? "justify-end"
-                        : "justify-start"
-                    }`}
-                  >
+              {messages.map(
+                (message, index) => {
+                  const isUser =
+                    message.role === "user";
 
-                    {!isUser && (
-
-                      <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-
-                        <Bot
-                          size={18}
-                        />
-
-                      </div>
-
-                    )}
-
+                  return (
                     <div
-                      className={`max-w-[80%] rounded-2xl px-5 py-4 ${
+                      key={index}
+                      className={`flex gap-3 ${
                         isUser
-                          ? "bg-blue-600 text-white rounded-br-md"
-                          : "bg-slate-100 text-slate-700 rounded-bl-md"
+                          ? "justify-end"
+                          : "justify-start"
                       }`}
                     >
 
-                      <p className="whitespace-pre-wrap leading-7 text-sm">
-                        {
-                          message.text
-                        }
-                      </p>
+                      {!isUser && (
+                        <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
 
-                    </div>
+                          <Bot size={20} />
 
-                    {isUser && (
+                        </div>
+                      )}
 
-                      <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center shrink-0">
 
-                        <User
-                          size={18}
-                        />
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-5 py-4 ${
+                          isUser
+                            ? "bg-blue-600 text-white rounded-br-md"
+                            : "bg-slate-100 text-slate-800 rounded-bl-md"
+                        }`}
+                      >
+
+                        <p className="whitespace-pre-wrap leading-7">
+                          {message.text}
+                        </p>
 
                       </div>
 
-                    )}
+
+                      {isUser && (
+                        <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+
+                          <User size={20} />
+
+                        </div>
+                      )}
+
+                    </div>
+                  );
+                }
+              )}
+
+
+              {sending && (
+                <div className="flex gap-3">
+
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+
+                    <Bot size={20} />
 
                   </div>
-                );
-              }
-            )}
 
-            {/* THINKING */}
+                  <div className="bg-slate-100 px-5 py-4 rounded-2xl rounded-bl-md">
 
-            {loading && (
+                    <div className="flex items-center gap-2">
 
-              <div className="flex gap-3">
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
 
-                <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:150ms]" />
 
-                  <Bot
-                    size={18}
-                  />
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:300ms]" />
+
+                    </div>
+
+                  </div>
 
                 </div>
+              )}
 
-                <div className="bg-slate-100 rounded-2xl rounded-bl-md px-5 py-4 text-slate-500 text-sm">
-                  Thinking...
-                </div>
 
-              </div>
+              <div ref={messagesEndRef} />
 
-            )}
-
-            <div
-              ref={bottomRef}
-            />
+            </div>
 
           </div>
+
 
           {/* ERROR */}
 
           {error && (
+            <div className="mx-6 mb-4 flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl p-4">
 
-            <div className="mx-5 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">
-              {error}
+              <AlertCircle
+                size={19}
+                className="shrink-0 mt-0.5"
+              />
+
+              <p>
+                {error}
+              </p>
+
             </div>
-
           )}
+
 
           {/* INPUT */}
 
-          <div className="border-t border-slate-200 p-4">
+          <div className="border-t border-slate-200 p-5">
 
-            <div className="flex items-end gap-3">
+            <div className="flex gap-3 items-end">
 
               <textarea
                 value={input}
                 onChange={(event) =>
-                  setInput(
-                    event.target.value
-                  )
+                  setInput(event.target.value)
                 }
-                onKeyDown={
-                  handleKeyDown
-                }
-                rows={2}
+                onKeyDown={handleKeyDown}
                 placeholder="Ask your research question..."
+                rows={2}
                 className="flex-1 resize-none border border-slate-300 rounded-xl px-4 py-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
 
+
               <button
                 type="button"
-                onClick={sendMessage}
-                disabled={
-                  loading ||
-                  !input.trim()
+                onClick={() =>
+                  sendMessage()
                 }
-                className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
-                  loading ||
-                  !input.trim()
-                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                    : "bg-blue-600 text-white hover:bg-blue-700"
+                disabled={
+                  !input.trim() ||
+                  sending
+                }
+                className={`w-14 h-14 rounded-xl flex items-center justify-center ${
+                  input.trim() &&
+                  !sending
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
                 }`}
               >
 
-                <Send
-                  size={20}
-                />
+                <Send size={21} />
 
               </button>
 
             </div>
 
-            <p className="text-xs text-slate-400 mt-3">
-              AI responses may contain errors. Verify important research, citation and journal information before using it.
-            </p>
+
+            <div className="flex items-start gap-2 text-xs text-slate-400 mt-4">
+
+              <BookOpen
+                size={14}
+                className="shrink-0 mt-0.5"
+              />
+
+              <p>
+                AI responses may contain errors. Verify important research, citation and journal information before using it.
+              </p>
+
+            </div>
 
           </div>
 
@@ -591,25 +642,6 @@ function ChatPage({
       </div>
 
     </div>
-  );
-}
-
-// =========================================================
-// QUICK BUTTON
-// =========================================================
-
-function QuickButton({
-  text,
-  onClick,
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="bg-white border border-slate-200 rounded-full px-4 py-2 text-sm text-slate-600 hover:border-blue-300 hover:text-blue-600 transition"
-    >
-      {text}
-    </button>
   );
 }
 
